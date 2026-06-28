@@ -1,123 +1,161 @@
 # AIsteno
 
-AIsteno is a local memory compressor for Miahou-style agents. Version 0.4 has
-three deliberately distinct modes:
+AIsteno is a universal packed-memory layer for AI agents.
 
-- **Archive:** exact, reversible storage through `encode`, `decode`, and
-  `roundtrip`. Its format header means short inputs may grow.
-- **Inject:** compact reversible phrase shorthand through `preview` and the
-  archive encoder.
-- **Pack:** lossy, fact-preserving structured memory summaries designed for
-  normal preferences, projects, devices, tools, workflows, and tasks.
+It keeps an agent's full memory file editable, then creates a compact, redacted,
+prompt-ready snapshot that can be injected into a system prompt, context block,
+or retrieval preamble. It is not tied to one agent framework.
 
-Pack output is not byte-reversible. Use archive mode when exact text matters.
-Pack mode always scans and redacts likely secrets before any compression.
+Use it with any local or custom agent that stores memory as text: Codex-style
+agents, Claude Code-style workflows, LangGraph, AutoGen, CrewAI, OpenHands,
+Miahou, or a plain Python agent.
+
+## What it does
+
+AIsteno has three deliberately separate modes:
+
+- **Pack**: lossy, fact-preserving memory compression for prompt injection.
+- **Secret scan**: reports likely secrets without printing the raw values.
+- **Archive**: exact reversible shorthand storage for cases where byte-for-byte
+  recovery matters.
+
+For agent memory injection, use **pack mode**, not archive mode.
 
 ## Install
+
+From a local checkout:
 
 ```sh
 python3 -m pip install -e .
 ```
 
-## Pack normal memory
+With `pipx` from GitHub after the repository is public:
 
 ```sh
-# Both print packed text and write nothing
-aisteno pack examples/normal_user_memory_sample.md
-aisteno pack-preview examples/normal_user_memory_sample.md
-
-# Show reduction and warning counts
-aisteno pack-stats examples/normal_user_memory_sample.md
-
-# Scan without printing secret values
-aisteno secret-scan examples/normal_user_memory_sample.md
-
-# Still a dry run: OUTPUT is not created
-aisteno pack examples/normal_user_memory_sample.md --out /tmp/user.pack
-
-# Explicitly create a new output
-aisteno pack examples/normal_user_memory_sample.md \
-  --out /tmp/user.pack --apply
-
-# Replacing an existing output requires both flags
-aisteno pack examples/normal_user_memory_sample.md \
-  --out /tmp/user.pack --apply --force
-
-# Include the optional tag legend
-aisteno pack-preview examples/normal_user_memory_sample.md --legend
+pipx install git+https://github.com/TheRealBrofessor/AIsteno.git
 ```
 
-Default packed output has no header or legend. It uses one structured line per
-record category, such as:
+## Quick start
+
+Preview a packed memory snapshot without writing anything:
+
+```sh
+aisteno pack-preview ./MEMORY.md
+```
+
+Write a packed memory file explicitly:
+
+```sh
+aisteno pack ./MEMORY.md --out ./packed/MEMORY.packed.md --apply
+```
+
+Replace an existing packed output only when intentional:
+
+```sh
+aisteno pack ./MEMORY.md --out ./packed/MEMORY.packed.md --apply --force
+```
+
+Check reduction and warning counts:
+
+```sh
+aisteno pack-stats ./MEMORY.md
+```
+
+Scan for likely secrets without printing secret values:
+
+```sh
+aisteno secret-scan ./MEMORY.md
+```
+
+## Agent integration pattern
+
+AIsteno does not need to own your agent. The clean integration is:
+
+```text
+agent writes full memory -> AIsteno packs it -> agent injects packed memory
+```
+
+Recommended layout:
+
+```text
+memory/
+  MEMORY.md              # full editable memory
+  USER.md                # full editable user profile
+  packed/
+    MEMORY.packed.md     # prompt injection snapshot
+    USER.packed.md       # prompt injection snapshot
+```
+
+The agent should continue writing to the full memory files. Regenerate the packed
+files after memory edits, then inject only the packed files into the prompt.
+
+## Safety model
+
+- Transforming commands are dry-run by default.
+- `--apply` is required to write an output file.
+- `--apply --force` is required to replace an existing output file.
+- The input file is never overwritten.
+- Pack mode redacts likely passwords, sudo values, API keys, access tokens,
+  generic secrets, login credentials, and conservative password-like values.
+- `secret-scan` reports counts, line numbers, types, and redacted previews only.
+- Archive mode is exact and intentionally does **not** redact; do not inject
+  archive output as agent memory.
+
+## Output shape
+
+Default packed output has no header or legend. It uses compact domain records,
+for example:
 
 ```text
 PREF{ans=concise/direct;cmd=1box;no=fluff}
-DEV{primary=Lenovo ThinkPad X1 Carbon;OS=Linux}
+DEV{primary=Linux workstation;OS=Ubuntu}
 WF{dry.first;bk.pre.edit;git.ckpt}
 SECRET{type=password;stored=no}
 ```
 
-The packer preserves clear identifiers—including paths, URLs, emails,
-hostnames, dates, command snippets, device model names, and app/project
-names—while removing grammar and merging duplicate facts. Legal, device,
-account, project, tool, status, risk, path, and workflow facts are kept in
-separate domain records where possible. The categorized
-normal-memory vocabulary contains more than 300 mappings.
-
-### Secret handling
-
-`pack`, `pack-preview`, and `pack-stats` detect labeled passwords, sudo values,
-API keys, access tokens, generic secrets, login credentials, and conservative
-password-like values. Secret values are removed before parsing. Packed output
-contains metadata such as `SECRET{type=sudo;stored=no}` but never the value.
-
-`secret-scan` reports only the count, line number, type, and a fully redacted
-preview. Archive mode intentionally remains exact and does not redact; do not
-inject archive output as agent memory.
-
-Pack mode also coarsens privilege behavior: full-permission hints become
-`priv=high`, and password-handling hints become
-`secret.policy=do_not_store`. Operational sudo behavior is not injected.
-
-## Archive mode
+Optional legend:
 
 ```sh
-# Preview only, even though --out is supplied
-aisteno encode examples/miahou_memory_sample.md --out /tmp/memory.aisteno
-
-# Create a new archive explicitly
-aisteno encode examples/miahou_memory_sample.md \
-  --out /tmp/memory.aisteno --apply
-
-aisteno decode /tmp/memory.aisteno --out /tmp/memory.decoded.md --apply
-aisteno preview examples/session_sample.md
-aisteno stats examples/session_sample.md
-aisteno roundtrip examples/session_sample.md
+aisteno pack-preview ./MEMORY.md --legend
 ```
 
-Archive files start with `AISTENO/v0.1`; retaining the v0.1 format identifier
-keeps existing archives compatible. Literal shorthand collisions and tildes
-are escaped so archive decoding restores the original text exactly, including
-line endings.
+## Current CLI
 
-## Safety
+```text
+aisteno pack INPUT [--out OUTPUT] [--apply] [--force] [--legend]
+aisteno pack-preview INPUT [--legend]
+aisteno pack-stats INPUT
+aisteno secret-scan INPUT
+aisteno encode INPUT --out OUTPUT [--apply] [--force]
+aisteno decode INPUT --out OUTPUT [--apply] [--force]
+aisteno preview INPUT
+aisteno stats INPUT
+aisteno roundtrip INPUT
+```
 
-- Transforming commands default to preview/dry-run.
-- `--apply` is required to write; `--apply --force` is required to replace an
-  existing output.
-- The input path is never overwritten, even with `--force`.
-- AIsteno only reads the input explicitly supplied to a command and never
-  discovers or edits Miahou memory on its own.
+## Roadmap
+
+The core engine is usable now. Plug-and-play agent installs should come next:
+
+```text
+aisteno init
+aisteno pack-dir ./memory --out ./memory/packed
+aisteno watch ./memory
+aisteno install-adapter generic
+aisteno install-adapter miahou
+```
+
+Those commands are roadmap items unless implemented in the current CLI.
 
 ## Development
 
-The suite has no third-party test dependency:
+The test suite uses the Python standard library:
 
 ```sh
 python3 -m unittest discover -s tests -v
 ```
 
-If pytest is installed, the same suite also runs with:
+If pytest is installed:
 
 ```sh
 pytest -q

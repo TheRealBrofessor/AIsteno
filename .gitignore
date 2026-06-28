@@ -6,11 +6,30 @@ __pycache__/
 build/
 dist/
 
-# Local virtualenv
+# Local virtualenvs
 .venv/
+venv/
+env/
+
+# Local secrets and environment
+.env
+*.env
+.env.*
+!.env.example
 
 # Local reports / generated previews
 reports/
 *.preview.aisteno.txt
 *.encoded
 *.decoded
+
+# Agent memory inputs and generated packed snapshots
+MEMORY.md
+USER.md
+*.packed.md
+packed/
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
