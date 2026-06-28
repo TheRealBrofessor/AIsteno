@@ -1,0 +1,11 @@
+PREF{ans=concise/direct;no=fluff;cmd=1box/noedit;src=needed;lists=short;answer.first;detail=short}
+STYLE{tone=friendly;lang=plain}
+DEV{primary=Lenovo ThinkPad X1 Carbon;OS=Linux;laptop.host=aurora.local;OS=Fedora Linux;phone.bk=Google Pixel 8 Pro}
+TOOL{VS Code=editor;Codex=AI.asst}
+ACCT{work.email=professor@example.com}
+PATH{main.proj=/home/professor/Projects/aisteno.;repo=/home/professor/Projects/aisteno;on}
+PROJ{Miahou/Autonode;role=local.exec}
+WF{dry.first:fileops;bk.pre.edit;confirm.pre.del;git.ckpt.pre.large.change;review.pre.apply;asst:ask.pre.cfg;no.owr}
+TASK{task.open;add structured normal-person mem packing;test packer against regular U preference files}
+NEXT{measure packed output;verify reduce target}
+STATUS{archive=works;pack=WIP}

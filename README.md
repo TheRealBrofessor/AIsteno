@@ -1,70 +1,102 @@
 # AIsteno
 
-AIsteno is a local, reversible shorthand layer for compressing Miahou-style
-agent memory and session text. Version 0.1 is deliberately conservative:
-evidence-like text is left visible and unchanged, and every supported
-substitution roundtrips exactly.
+AIsteno is a local memory compressor for Miahou-style agents. Version 0.2 has
+three deliberately distinct modes:
+
+- **Archive:** exact, reversible storage through `encode`, `decode`, and
+  `roundtrip`. Its format header means short inputs may grow.
+- **Inject:** compact reversible phrase shorthand through `preview` and the
+  archive encoder.
+- **Pack:** lossy, fact-preserving structured memory summaries designed for
+  normal preferences, projects, devices, tools, workflows, and tasks.
+
+Pack output is not byte-reversible. Use archive mode when exact text matters.
 
 ## Install
 
 ```sh
-python -m pip install -e .
+python3 -m pip install -e .
 ```
 
-## Safety model
-
-- `encode` and `decode` are previews by default, even when `--out` is given.
-- Add `--apply` to create the output file.
-- Existing output files and input files are never overwritten.
-- Paths, hashes, case references, dates/timestamps, commands, error strings,
-  device details, and legal/forensic lines are excluded from compression.
-- AIsteno never reads or writes Miahou configuration or memory directories on
-  its own; it only handles the input path explicitly supplied to it.
-
-## Usage
+## Pack normal memory
 
 ```sh
-# Preview the encoded result; writes nothing
+# Both print packed text and write nothing
+aisteno pack examples/normal_user_memory_sample.md
+aisteno pack-preview examples/normal_user_memory_sample.md
+
+# Show reduction and warning counts
+aisteno pack-stats examples/normal_user_memory_sample.md
+
+# Still a dry run: OUTPUT is not created
+aisteno pack examples/normal_user_memory_sample.md --out /tmp/user.pack
+
+# Explicitly create a new output
+aisteno pack examples/normal_user_memory_sample.md \
+  --out /tmp/user.pack --apply
+
+# Replacing an existing output requires both flags
+aisteno pack examples/normal_user_memory_sample.md \
+  --out /tmp/user.pack --apply --force
+
+# Include the optional tag legend
+aisteno pack-preview examples/normal_user_memory_sample.md --legend
+```
+
+Default packed output has no header or legend. It uses one structured line per
+record category, such as:
+
+```text
+PREF{ans=concise/direct;cmd=1box;no=fluff}
+DEV{primary=Lenovo ThinkPad X1 Carbon;OS=Linux}
+WF{dry.first;bk.pre.edit;git.ckpt}
+```
+
+The packer preserves clear identifiers—including paths, URLs, emails,
+hostnames, dates, command snippets, device model names, and app/project
+names—while removing grammar and merging duplicate facts. The categorized
+normal-memory vocabulary contains more than 300 mappings.
+
+## Archive mode
+
+```sh
+# Preview only, even though --out is supplied
 aisteno encode examples/miahou_memory_sample.md --out /tmp/memory.aisteno
 
-# Explicitly create a new output file
+# Create a new archive explicitly
 aisteno encode examples/miahou_memory_sample.md \
   --out /tmp/memory.aisteno --apply
 
-# Preview or explicitly write a decoded file
-aisteno decode /tmp/memory.aisteno --out /tmp/memory.decoded.md
-aisteno decode /tmp/memory.aisteno \
-  --out /tmp/memory.decoded.md --apply
-
+aisteno decode /tmp/memory.aisteno --out /tmp/memory.decoded.md --apply
 aisteno preview examples/session_sample.md
 aisteno stats examples/session_sample.md
 aisteno roundtrip examples/session_sample.md
 ```
 
-The complete command set is:
+Archive files start with `AISTENO/v0.1`; retaining the v0.1 format identifier
+keeps existing archives compatible. Literal shorthand collisions and tildes
+are escaped so archive decoding restores the original text exactly, including
+line endings.
 
-```text
-aisteno encode INPUT --out OUTPUT [--apply]
-aisteno decode INPUT --out OUTPUT [--apply]
-aisteno preview INPUT
-aisteno stats INPUT
-aisteno roundtrip INPUT
-```
+## Safety
 
-`preview` displays an encoding without writing it. `stats` reports original
-and encoded character counts, savings, reduction percentage, and roundtrip
-status. `roundtrip` exits nonzero if decoding the encoded form differs from the
-input.
-
-## Format
-
-Encoded files begin with the fixed `AISTENO/v0.1` reversible header and legend.
-The body follows a `BODY:` marker. A literal shorthand collision is prefixed by
-`~`, and a literal `~` is encoded as `~~`; decoding removes those escapes. This
-makes inputs that already contain strings such as `AN` or `BK` unambiguous.
+- Transforming commands default to preview/dry-run.
+- `--apply` is required to write; `--apply --force` is required to replace an
+  existing output.
+- The input path is never overwritten, even with `--force`.
+- AIsteno only reads the input explicitly supplied to a command and never
+  discovers or edits Miahou memory on its own.
 
 ## Development
 
+The suite has no third-party test dependency:
+
 ```sh
-python -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v
+```
+
+If pytest is installed, the same suite also runs with:
+
+```sh
+pytest -q
 ```
