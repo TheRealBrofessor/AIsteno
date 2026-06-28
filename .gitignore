@@ -1,0 +1,16 @@
+# Python generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Local virtualenv
+.venv/
+
+# Local reports / generated previews
+reports/
+*.preview.aisteno.txt
+*.encoded
+*.decoded
