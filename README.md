@@ -1,6 +1,6 @@
 # AIsteno
 
-AIsteno is a local memory compressor for Miahou-style agents. Version 0.3 has
+AIsteno is a local memory compressor for Miahou-style agents. Version 0.4 has
 three deliberately distinct modes:
 
 - **Archive:** exact, reversible storage through `encode`, `decode`, and
@@ -74,6 +74,10 @@ contains metadata such as `SECRET{type=sudo;stored=no}` but never the value.
 `secret-scan` reports only the count, line number, type, and a fully redacted
 preview. Archive mode intentionally remains exact and does not redact; do not
 inject archive output as agent memory.
+
+Pack mode also coarsens privilege behavior: full-permission hints become
+`priv=high`, and password-handling hints become
+`secret.policy=do_not_store`. Operational sudo behavior is not injected.
 
 ## Archive mode
 

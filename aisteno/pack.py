@@ -1,4 +1,4 @@
-"""Lossy, secret-redacting structured memory packer for AIsteno v0.3."""
+"""Lossy, secret-redacting structured memory packer for AIsteno v0.4."""
 
 from __future__ import annotations
 
@@ -483,7 +483,30 @@ def _dense_compact(text: str) -> str:
     )
     for pattern, replacement in shapes:
         restored = re.sub(rf"^{pattern}$", replacement, restored, flags=re.IGNORECASE)
-    return restored
+    return _sanitize_privilege_hints(restored)
+
+
+def _sanitize_privilege_hints(text: str) -> str:
+    """Coarsen operational privilege behavior before memory injection."""
+    text = re.sub(
+        r'(?:"Full perm"\s*=\s*)?sudo(?:\.|=)all',
+        "priv=high",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r'"Full perm"\s*=\s*priv=high',
+        "priv=high",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?:P\.rule\s*;\s*|P\s*:\s*)?no\.judge\.pw",
+        "secret.policy=do_not_store",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
 
 
 def pack(text: str, *, legend: bool = False) -> PackResult:

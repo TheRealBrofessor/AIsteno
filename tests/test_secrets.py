@@ -113,6 +113,21 @@ class SecretSafetyTests(unittest.TestCase):
         source = "sudo=Archive6!Exact\napi_key=archive-key-value\n"
         self.assertEqual(decode(encode(source)), source)
 
+    def test_pack_coarsens_full_permission_hint(self):
+        result = pack('Professor preferences: "Full perm" = all sudo.\n').text
+        self.assertNotIn("sudo.all", result)
+        self.assertNotIn('"Full perm"', result)
+        self.assertIn("priv=high", result)
+
+    def test_pack_coarsens_password_policy_and_keeps_secret_record(self):
+        value = "Policy7!Hidden"
+        result = pack(f"Professor rule: NEVER judge passwords. sudo={value}.\n").text
+        self.assertNotIn(value, result)
+        self.assertNotIn("no.judge.pw", result)
+        self.assertNotIn("P.rule;no.judge.pw", result)
+        self.assertIn("secret.policy=do_not_store", result)
+        self.assertIn("SECRET{type=sudo;stored=no}", result)
+
     def test_dense_records_split_into_domain_tags(self):
         source = (
             "Case No. CV-2026-14 must remain exact.\n"
