@@ -9,6 +9,7 @@ from pathlib import Path
 from .codec import FormatError, decode, encode, roundtrip_matches
 from .pack import pack
 from .report import calculate_pack_stats, calculate_stats, format_pack_stats, format_stats
+from .secrets import format_secret_scan, scan_secrets
 
 
 def _read(path: Path) -> str:
@@ -67,6 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
     pack_preview.add_argument("--legend", action="store_true", help="include the compact tag legend")
     pack_stats = subparsers.add_parser("pack-stats")
     pack_stats.add_argument("input", type=Path, metavar="INPUT")
+    secret_scan = subparsers.add_parser("secret-scan")
+    secret_scan.add_argument("input", type=Path, metavar="INPUT")
     return parser
 
 
@@ -88,6 +91,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         elif args.command == "pack-stats":
             print(format_pack_stats(calculate_pack_stats(text)))
+            return 0
+        elif args.command == "secret-scan":
+            print(format_secret_scan(scan_secrets(text)))
             return 0
         elif args.command == "pack-preview":
             sys.stdout.write(pack(text, legend=args.legend).text)

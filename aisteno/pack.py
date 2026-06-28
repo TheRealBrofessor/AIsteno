@@ -1,4 +1,4 @@
-"""Lossy, fact-preserving structured memory packer for AIsteno v0.2."""
+"""Lossy, secret-redacting structured memory packer for AIsteno v0.3."""
 
 from __future__ import annotations
 
@@ -6,11 +6,13 @@ from dataclasses import dataclass
 import re
 
 from .wordlist import WORDLIST
+from .secrets import scan_secrets
 
 
 PACK_LEGEND = """PREF=user preferences
 STYLE=communication style
 RULE=standing rules
+LEGAL=legal notes
 PROJ=project notes
 DEV=device notes
 TOOL=tool/app notes
@@ -23,6 +25,7 @@ MEM=memory-specific info
 AGENT=agent behavior
 RISK=risks/warnings
 NEXT=next action
+SECRET=redacted secret metadata
 """
 
 
@@ -31,6 +34,7 @@ class PackResult:
     text: str
     records_created: int
     possible_lost_detail_warnings: int
+    secrets_redacted: int
 
 
 _PROTECTED = re.compile(
@@ -67,20 +71,21 @@ _SUBJECT_PREFIX = re.compile(
 _BULLET = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+|\[[ xX]\]\s*)")
 
 _CLASSIFIERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("LEGAL", ("case no", "docket", "legal", "court", "lawsuit", "amendment", "plra", "retaliat", "officer ", "nurse ", "transfusion")),
     ("RISK", ("warning", "risk", "never ", "do not ", "don't ", "sensitive", "danger", "forensic", "hash")),
-    ("ACCT", ("account", "email", "login", "password", "credential", "subscription", "@")),
+    ("ACCT", ("account", "email", "login", "password", "credential", "subscription", "protonmail", "smtp", "imap", "recaptcha", "@")),
     ("PATH", (" path", "directory", "folder", "repository root", "location:", "/home/", "/srv/")),
-    ("DEV", ("device", "laptop", "phone", "tablet", "desktop", "server", "hostname", "operating system", " OS ", "model:")),
+    ("DEV", ("device", "laptop", "phone", "tablet", "desktop", "server", "hostname", "operating system", " OS ", "model:", "moto ", "android ", "kernel ", "fastboot", " adb ", "usb ", "partition")),
     ("TASK", ("open task", "todo", "to do", "needs to", "must still", "remaining task")),
     ("NEXT", ("next action", "next step", "follow up")),
     ("STATUS", ("status", "currently", "in progress", "completed", "blocked", "pending", "live", "working")),
     ("WF", ("workflow", "dry-run", "dry run", "preview", "backup", "checkpoint", "before edit", "before chang", "git ")),
-    ("STYLE", ("tone", "communication style", "formatting", "jargon", "bullet", "friendly", "professional")),
+    ("STYLE", ("tone", "communication style", "formatting", "jargon", "bullet", "friendly", "professional", "preferences:", "frustration signals", "short direct commands")),
     ("PREF", ("prefer", "likes", "wants", "answer", "no fluff", "copy paste", "copy/paste", "sources", "low-token", "concise", "direct")),
     ("AGENT", ("agent should", "agent must", "assistant should", "assistant must", "agent behavior", "permission")),
     ("MEM", ("memory", "context", "session history", "remember")),
-    ("TOOL", ("tool", "app", "VS Code", "Codex", "editor", "router")),
-    ("PROJ", ("project", "Autonode", "Miahou", "release", "repository", "execution layer", "version")),
+    ("TOOL", ("tool", "app", "VS Code", "Codex", "editor", "router", " cli ", " gui", "flask", "tkinter", "javascript", "js reversing", "skill tree")),
+    ("PROJ", ("project", "Autonode", "Miahou", "release", "repository", "execution layer", "version", "company:", " owner", "creator")),
     ("RULE", ("rule", " means ", "always", "standing instruction", "must ", "should ")),
 )
 
@@ -130,6 +135,8 @@ def _split_records(text: str) -> list[str]:
 def _tag_for(record: str) -> str:
     padded = f" {record} "
     folded = padded.casefold()
+    if re.search(r"\b[A-Z]{2,}\d{2}-\d{3,}[A-Z0-9-]*\b", record):
+        return "LEGAL"
     for tag, needles in _CLASSIFIERS:
         if any(needle.casefold() in folded for needle in needles):
             return tag
@@ -458,7 +465,6 @@ def _dense_compact(text: str) -> str:
         (r"PREF;tok=low—2-3 sent\.max;no=filler;bullets;act\. (\".+?\")=sudo=all", r"tok=low;ans=2-3sent;no=filler;bullets;act;\1=sudo.all"),
         (r"Flask for web\.GUI\. tkinter agent\.no\.show—use Flask", "web.GUI=Flask;tkinter:no.agent.display→Flask"),
         (r"Bridge SMTP;1025 IMAP;1143 localhost\. reCAPTCHA blocks web\.form", "SMTP:1025;IMAP:1143@localhost;reCAPTCHA:block.web.form"),
-        (r"Email/ProtonMail;(.+?) / (.+)", r"ProtonMail:\1;pw=\2"),
         (r"Vertex Global Services LLC—Android FORE\.suite", "Vertex Global Services LLC:Android FORE.suite"),
         (r"Miahou GUI \(Flask;(.+?)\)", r"Miahou.GUI=Flask:\1"),
         (r"Autonode v1\.0 LIVE (\(.+?\));Router \((.+?)\) task→packet", r"Autonode v1.0 LIVE\1;router=\2:task→packet"),
@@ -481,10 +487,17 @@ def _dense_compact(text: str) -> str:
 
 
 def pack(text: str, *, legend: bool = False) -> PackResult:
-    """Pack normal memory into compact records; output is intentionally lossy."""
+    """Pack normal memory after redacting every detected secret value."""
+    secret_scan = scan_secrets(text)
     grouped: dict[str, list[str]] = {}
     warnings = 0
-    for raw_record in _split_records(text):
+    secret_types: list[str] = []
+    secret_marker = re.compile(r"SECRET\{type=([a-z_]+);stored=no\}")
+    for raw_record in _split_records(secret_scan.redacted_text):
+        secret_types.extend(secret_marker.findall(raw_record))
+        raw_record = secret_marker.sub("", raw_record).strip(" .;,:/")
+        if not raw_record:
+            continue
         tag = _tag_for(raw_record)
         compact = _compact_record(raw_record, tag)
         if not compact:
@@ -497,9 +510,10 @@ def pack(text: str, *, legend: bool = False) -> PackResult:
             _merge_fields(grouped.setdefault(tag, []), compact)
 
     lines = [f"{tag}{{{';'.join(fields)}}}" for tag, fields in grouped.items()]
+    lines.extend(f"SECRET{{type={secret_type};stored=no}}" for secret_type in secret_types)
     packed = "\n".join(lines)
     if packed:
         packed += "\n"
     if legend:
         packed = PACK_LEGEND + packed
-    return PackResult(packed, len(lines), warnings)
+    return PackResult(packed, len(lines), warnings, len(secret_scan.findings))

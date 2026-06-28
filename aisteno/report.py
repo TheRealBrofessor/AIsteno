@@ -50,6 +50,7 @@ class PackStats:
     percent_reduction: float
     records_created: int
     possible_lost_detail_warnings: int
+    secrets_redacted: int
 
 
 def calculate_pack_stats(text: str) -> PackStats:
@@ -65,6 +66,7 @@ def calculate_pack_stats(text: str) -> PackStats:
         percent_reduction=reduction,
         records_created=result.records_created,
         possible_lost_detail_warnings=result.possible_lost_detail_warnings,
+        secrets_redacted=result.secrets_redacted,
     )
 
 
@@ -77,5 +79,6 @@ def format_pack_stats(stats: PackStats) -> str:
             f"percent reduction: {stats.percent_reduction:.2f}%",
             f"records created: {stats.records_created}",
             f"possible lost-detail warnings: {stats.possible_lost_detail_warnings}",
+            f"secrets redacted: {stats.secrets_redacted}",
         )
     )

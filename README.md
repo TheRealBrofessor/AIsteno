@@ -1,6 +1,6 @@
 # AIsteno
 
-AIsteno is a local memory compressor for Miahou-style agents. Version 0.2 has
+AIsteno is a local memory compressor for Miahou-style agents. Version 0.3 has
 three deliberately distinct modes:
 
 - **Archive:** exact, reversible storage through `encode`, `decode`, and
@@ -11,6 +11,7 @@ three deliberately distinct modes:
   normal preferences, projects, devices, tools, workflows, and tasks.
 
 Pack output is not byte-reversible. Use archive mode when exact text matters.
+Pack mode always scans and redacts likely secrets before any compression.
 
 ## Install
 
@@ -27,6 +28,9 @@ aisteno pack-preview examples/normal_user_memory_sample.md
 
 # Show reduction and warning counts
 aisteno pack-stats examples/normal_user_memory_sample.md
+
+# Scan without printing secret values
+aisteno secret-scan examples/normal_user_memory_sample.md
 
 # Still a dry run: OUTPUT is not created
 aisteno pack examples/normal_user_memory_sample.md --out /tmp/user.pack
@@ -50,12 +54,26 @@ record category, such as:
 PREF{ans=concise/direct;cmd=1box;no=fluff}
 DEV{primary=Lenovo ThinkPad X1 Carbon;OS=Linux}
 WF{dry.first;bk.pre.edit;git.ckpt}
+SECRET{type=password;stored=no}
 ```
 
 The packer preserves clear identifiers—including paths, URLs, emails,
 hostnames, dates, command snippets, device model names, and app/project
-names—while removing grammar and merging duplicate facts. The categorized
+names—while removing grammar and merging duplicate facts. Legal, device,
+account, project, tool, status, risk, path, and workflow facts are kept in
+separate domain records where possible. The categorized
 normal-memory vocabulary contains more than 300 mappings.
+
+### Secret handling
+
+`pack`, `pack-preview`, and `pack-stats` detect labeled passwords, sudo values,
+API keys, access tokens, generic secrets, login credentials, and conservative
+password-like values. Secret values are removed before parsing. Packed output
+contains metadata such as `SECRET{type=sudo;stored=no}` but never the value.
+
+`secret-scan` reports only the count, line number, type, and a fully redacted
+preview. Archive mode intentionally remains exact and does not redact; do not
+inject archive output as agent memory.
 
 ## Archive mode
 

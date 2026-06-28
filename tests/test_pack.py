@@ -83,6 +83,7 @@ class PackTests(unittest.TestCase):
             "percent reduction:",
             "records created:",
             "possible lost-detail warnings:",
+            "secrets redacted:",
         ):
             self.assertIn(label, report)
 
