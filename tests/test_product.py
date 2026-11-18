@@ -13,6 +13,7 @@ from aisteno.dashboard import serve
 from aisteno.mcp_server import serve as serve_mcp
 from aisteno.setup import discover_candidates, setup
 from aisteno.sync import restore, sync, watch
+from aisteno.adapters import agent_startup
 
 
 class ProductTests(unittest.TestCase):
@@ -71,6 +72,18 @@ class ProductTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     sync(config)
             self.assertEqual(output.read_bytes(), previous)
+
+    def test_agent_startup_rejects_stale_context(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, output = root / "source.md", root / "output.txt"
+            source.write_text("User prefers concise answers.\n", encoding="utf-8")
+            config = Config(str(source), str(output))
+            sync(config)
+            self.assertIn("PREF", agent_startup(config))
+            source.write_text("User prefers direct answers.\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                agent_startup(config)
 
     def test_mcp_stdio_exposes_context(self):
         with tempfile.TemporaryDirectory() as directory:

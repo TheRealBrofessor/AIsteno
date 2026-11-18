@@ -117,21 +117,25 @@ def _replace_wordlist(text: str) -> str:
     return text
 
 
-def _split_records(text: str) -> list[str]:
-    records: list[str] = []
+def _split_records(text: str) -> list[tuple[int, str]]:
+    records: list[tuple[int, str]] = []
 
-    for raw_line in text.splitlines():
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
         line = raw_line.strip()
         if not line:
             continue
         if line.startswith("#"):
             continue
-        records.append(_BULLET.sub("", raw_line).strip())
+        records.append((line_number, _BULLET.sub("", raw_line).strip()))
 
-    split: list[str] = []
-    for record in records:
+    split: list[tuple[int, str]] = []
+    for line_number, record in records:
         # Sentences are independent memory facts; do not split decimal versions.
-        split.extend(part.strip() for part in re.split(r"(?<=[.!?])\s+(?=[A-Z])", record) if part.strip())
+        split.extend(
+            (line_number, part.strip())
+            for part in re.split(r"(?<=[.!?])\s+(?=[A-Z])", record)
+            if part.strip()
+        )
     return split
 
 
@@ -511,7 +515,7 @@ def pack(text: str, *, legend: bool = False, schema: MemorySchema = DEFAULT_SCHE
     warnings = 0
     secret_types: list[str] = []
     secret_marker = re.compile(r"SECRET\{type=([a-z_]+);stored=no\}")
-    for line_number, raw_record in enumerate(_split_records(secret_scan.redacted_text), start=1):
+    for line_number, raw_record in _split_records(secret_scan.redacted_text):
         secret_types.extend(secret_marker.findall(raw_record))
         raw_record = secret_marker.sub("", raw_record).strip(" .;,:/")
         if re.fullmatch(r"(?:sudo(?:\s+password)?|password|passwd|pw|secret|"

@@ -33,6 +33,10 @@ class StructuredMemoryTests(unittest.TestCase):
         facts = canonicalize((("PREF", "answer", "short", 1), ("PREF", "answer", "shorter", 2)))
         self.assertEqual(len(facts), 2)
 
+    def test_packed_fact_provenance_uses_original_source_lines(self):
+        result = pack("\n# heading\n\nUser prefers concise answers.\n")
+        self.assertEqual(result.facts[0].provenance[0].line, 4)
+
     def test_json_and_agent_adapters_are_machine_readable(self):
         payload = json.loads(pack_json("User prefers concise answers.\n"))
         self.assertEqual(payload[0]["domain"], "PREF")
