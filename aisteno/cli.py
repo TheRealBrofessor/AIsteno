@@ -11,6 +11,11 @@ from .pack import pack
 from .report import calculate_pack_stats, calculate_stats, format_pack_stats, format_stats
 from .secrets import format_secret_scan, scan_secrets
 from .integrations import pack_json
+from .config import Config, load_config, validate_config
+from .setup import setup
+from .sync import restore, sync, watch
+from .dashboard import serve as serve_dashboard
+from .mcp_server import serve as serve_mcp
 
 
 def _read(path: Path) -> str:
@@ -76,13 +81,30 @@ def build_parser() -> argparse.ArgumentParser:
     secret_scan.add_argument("input", type=Path, metavar="INPUT")
     pack_json_parser = subparsers.add_parser("pack-json")
     pack_json_parser.add_argument("input", type=Path, metavar="INPUT")
+    setup_parser = subparsers.add_parser("setup", help="discover and approve an agent memory source")
+    setup_parser.add_argument("--source", type=Path)
+    setup_parser.add_argument("--output", type=Path)
+    setup_parser.add_argument("--yes", action="store_true", help="approve the displayed source and output")
+    sync_parser = subparsers.add_parser("sync", help="compile configured memory safely")
+    sync_parser.add_argument("--force", action="store_true")
+    subparsers.add_parser("validate", help="validate the configured source and output")
+    watch_parser = subparsers.add_parser("watch", help="automatically sync when source memory changes")
+    watch_parser.add_argument("--interval", type=float, default=2.0)
+    watch_parser.add_argument("--once", action="store_true")
+    restore_parser = subparsers.add_parser("restore", help="restore a named backup")
+    restore_parser.add_argument("backup", type=Path)
+    restore_parser.add_argument("--output", type=Path)
+    dashboard_parser = subparsers.add_parser("dashboard", help="serve the local dashboard")
+    dashboard_parser.add_argument("--host", default="127.0.0.1")
+    dashboard_parser.add_argument("--port", type=int, default=8765)
+    mcp_parser = subparsers.add_parser("mcp", help="run the MCP-compatible stdio bridge")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        text = _read(args.input)
+        text = _read(args.input) if hasattr(args, "input") else ""
         if getattr(args, "force", False) and not getattr(args, "apply", False):
             raise ValueError("--force requires --apply")
         if args.command == "encode":
@@ -103,6 +125,37 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         elif args.command == "pack-json":
             sys.stdout.write(pack_json(text))
+            return 0
+        elif args.command == "setup":
+            config = setup(
+                assume_yes=args.yes,
+                source=args.source,
+                output=args.output,
+            )
+            print(f"configured: {config.source} -> {config.output}")
+            return 0
+        elif args.command == "sync":
+            result = sync(load_config(), force=args.force)
+            print(f"{'updated' if result.changed else 'unchanged'}: {result.output}")
+            return 0
+        elif args.command == "validate":
+            validate_config(load_config())
+            print("configuration: valid")
+            return 0
+        elif args.command == "watch":
+            for result in watch(load_config(), interval=args.interval, once=args.once):
+                print(f"{'updated' if result.changed else 'unchanged'}: {result.output}", flush=True)
+            return 0
+        elif args.command == "restore":
+            config = load_config()
+            restore(args.backup, args.output or Path(config.output))
+            print(f"restored: {args.output or config.output}")
+            return 0
+        elif args.command == "dashboard":
+            serve_dashboard(args.host, args.port).serve_forever()
+            return 0
+        elif args.command == "mcp":
+            serve_mcp()
             return 0
         elif args.command == "pack-preview":
             sys.stdout.write(pack(text, legend=args.legend).text)

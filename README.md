@@ -23,6 +23,33 @@ GitHub, JWT, Slack, Google, Stripe, and private-key forms.
 python3 -m pip install -e .
 ```
 
+For an isolated end-user installation:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TheRealBrofessor/AIsteno/main/install.sh | sh
+```
+
+`pipx install aisteno` is also supported. The installer does not access agent
+memory; setup requires an explicit approval.
+
+## Product workflow
+
+Discover a supported Hermes memory file, approve the source/output pair, and
+write a verified packed snapshot without modifying the source:
+
+```sh
+aisteno setup
+aisteno validate
+aisteno sync
+aisteno watch --interval 5
+aisteno restore /path/to/output.txt.20260101T000000Z.bak
+```
+
+The default configuration lives at `~/.config/aisteno/config.json` and may be
+overridden with `AISTENO_CONFIG`. Backups are created before replacement.
+`aisteno dashboard` serves a loopback-only fact/conflict report; `aisteno mcp`
+provides a dependency-free JSON-RPC stdio bridge for compatible MCP clients.
+
 ## Pack normal memory
 
 ```sh
