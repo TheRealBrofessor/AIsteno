@@ -10,9 +10,12 @@ from .codec import FormatError, decode, encode, roundtrip_matches
 from .pack import pack
 from .report import calculate_pack_stats, calculate_stats, format_pack_stats, format_stats
 from .secrets import format_secret_scan, scan_secrets
+from .integrations import pack_json
 
 
 def _read(path: Path) -> str:
+    if str(path) == "-":
+        return sys.stdin.read()
     with path.open("r", encoding="utf-8", newline="") as stream:
         return stream.read()
 
@@ -52,6 +55,7 @@ def _add_pack_parser(subparsers: argparse._SubParsersAction) -> None:
     parser.add_argument("--apply", action="store_true", help="write OUTPUT (default: preview only)")
     parser.add_argument("--force", action="store_true", help="overwrite OUTPUT; requires --apply")
     parser.add_argument("--legend", action="store_true", help="include the compact tag legend")
+    parser.add_argument("--json", action="store_true", help="emit canonical facts as JSON")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -70,6 +74,8 @@ def build_parser() -> argparse.ArgumentParser:
     pack_stats.add_argument("input", type=Path, metavar="INPUT")
     secret_scan = subparsers.add_parser("secret-scan")
     secret_scan.add_argument("input", type=Path, metavar="INPUT")
+    pack_json_parser = subparsers.add_parser("pack-json")
+    pack_json_parser.add_argument("input", type=Path, metavar="INPUT")
     return parser
 
 
@@ -95,11 +101,14 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "secret-scan":
             print(format_secret_scan(scan_secrets(text)))
             return 0
+        elif args.command == "pack-json":
+            sys.stdout.write(pack_json(text))
+            return 0
         elif args.command == "pack-preview":
             sys.stdout.write(pack(text, legend=args.legend).text)
             return 0
         elif args.command == "pack":
-            result = pack(text, legend=args.legend).text
+            result = pack_json(text) if args.json else pack(text, legend=args.legend).text
             if args.out is None:
                 sys.stdout.write(result)
                 return 0

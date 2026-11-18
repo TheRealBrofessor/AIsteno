@@ -12,6 +12,10 @@ three deliberately distinct modes:
 
 Pack output is not byte-reversible. Use archive mode when exact text matters.
 Pack mode always scans and redacts likely secrets before any compression.
+Pack mode fails closed when a credential-shaped value cannot be classified
+reliably. Install the optional `security` extra to enable the established
+`detect-secrets` plugin suite in CI; format-aware detectors cover common AWS,
+GitHub, JWT, Slack, Google, Stripe, and private-key forms.
 
 ## Install
 
@@ -64,6 +68,18 @@ account, project, tool, status, risk, path, and workflow facts are kept in
 separate domain records where possible. The categorized
 normal-memory vocabulary contains more than 300 mappings.
 
+Packed records are backed by versioned canonical facts rather than substring
+merging. JSON export includes each fact's domain, key, value, timestamp,
+source line, conflicts, and explicit supersession markers:
+
+```sh
+cat memory.md | aisteno pack-json -
+aisteno pack memory.md --json
+```
+
+The compiler schema and transformations are extensible in
+`aisteno/schema.py`; the vocabulary remains data in `wordlist.py`.
+
 ### Secret handling
 
 `pack`, `pack-preview`, and `pack-stats` detect labeled passwords, sudo values,
@@ -74,6 +90,16 @@ contains metadata such as `SECRET{type=sudo;stored=no}` but never the value.
 `secret-scan` reports only the count, line number, type, and a fully redacted
 preview. Archive mode intentionally remains exact and does not redact; do not
 inject archive output as agent memory.
+
+## Benchmark
+
+The benchmark compares original memory, AIsteno packing, and a structured
+summary baseline using real `tiktoken` or `transformers` tokenizers plus
+factual QA checks:
+
+```sh
+python benchmarks/run.py tiktoken
+```
 
 Pack mode also coarsens privilege behavior: full-permission hints become
 `priv=high`, and password-handling hints become

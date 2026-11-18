@@ -1,0 +1,9 @@
+{
+  "memory": "The user prefers concise direct answers with no fluff. The primary device is a Lenovo ThinkPad X1 Carbon running Linux. The work email is professor@example.com. The project is AIsteno and its status is active.",
+  "questions": [
+    {"question": "What answer style is preferred?", "expected": ["concise", "direct"]},
+    {"question": "What is the primary device?", "expected": ["Lenovo ThinkPad X1 Carbon"]},
+    {"question": "What is the project status?", "expected": ["active"]},
+    {"question": "What is the work email?", "expected": ["professor@example.com"]}
+  ]
+}
