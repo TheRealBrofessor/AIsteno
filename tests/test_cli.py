@@ -1,6 +1,8 @@
 import contextlib
 import io
 import tempfile
+import json
+import os
 import unittest
 from pathlib import Path
 
@@ -64,6 +66,25 @@ class CliSafetyTests(unittest.TestCase):
                 code = main(["pack", str(source), "--out", str(source), "--apply", "--force"])
             self.assertEqual(code, 2)
             self.assertEqual(source.read_text(encoding="utf-8"), original)
+
+    def test_sync_force_is_not_tied_to_apply(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "memory.md"
+            output = root / "packed.txt"
+            config = root / "config.json"
+            source.write_text("User prefers concise answers.\n", encoding="utf-8")
+            output.write_text("unmanaged output", encoding="utf-8")
+            config.write_text(json.dumps({"source": str(source), "output": str(output)}), encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                with unittest.mock.patch.dict(os.environ, {"AISTENO_CONFIG": str(config)}):
+                    code = main(["sync"])
+            self.assertEqual(code, 2)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                with unittest.mock.patch.dict(os.environ, {"AISTENO_CONFIG": str(config)}):
+                    code = main(["sync", "--force"])
+            self.assertEqual(code, 0)
+            self.assertTrue(output.read_text(encoding="utf-8").startswith("AISTENO-SYNC/v1"))
 
 
 if __name__ == "__main__":

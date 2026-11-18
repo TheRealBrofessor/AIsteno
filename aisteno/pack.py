@@ -6,7 +6,9 @@ from dataclasses import dataclass
 import re
 
 from .wordlist import WORDLIST
-from .secrets import scan_secrets
+from .facts import CanonicalFact, canonicalize
+from .secrets import ensure_safe, scan_secrets
+from .schema import DEFAULT_SCHEMA, MemorySchema
 
 
 PACK_LEGEND = """PREF=user preferences
@@ -35,6 +37,7 @@ class PackResult:
     records_created: int
     possible_lost_detail_warnings: int
     secrets_redacted: int
+    facts: tuple[CanonicalFact, ...] = ()
 
 
 _PROTECTED = re.compile(
@@ -114,21 +117,25 @@ def _replace_wordlist(text: str) -> str:
     return text
 
 
-def _split_records(text: str) -> list[str]:
-    records: list[str] = []
+def _split_records(text: str) -> list[tuple[int, str]]:
+    records: list[tuple[int, str]] = []
 
-    for raw_line in text.splitlines():
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
         line = raw_line.strip()
         if not line:
             continue
         if line.startswith("#"):
             continue
-        records.append(_BULLET.sub("", raw_line).strip())
+        records.append((line_number, _BULLET.sub("", raw_line).strip()))
 
-    split: list[str] = []
-    for record in records:
+    split: list[tuple[int, str]] = []
+    for line_number, record in records:
         # Sentences are independent memory facts; do not split decimal versions.
-        split.extend(part.strip() for part in re.split(r"(?<=[.!?])\s+(?=[A-Z])", record) if part.strip())
+        split.extend(
+            (line_number, part.strip())
+            for part in re.split(r"(?<=[.!?])\s+(?=[A-Z])", record)
+            if part.strip()
+        )
     return split
 
 
@@ -238,15 +245,6 @@ def _compact_record(record: str, tag: str) -> str:
     for pattern, replacement in shapes:
         compact = re.sub(rf"^{pattern}$", replacement, compact, flags=re.IGNORECASE)
     return compact
-
-
-def _merge_fields(existing: list[str], candidate: str) -> None:
-    for field in (part for part in candidate.split(";") if part):
-        folded = field.casefold()
-        if any(folded == current.casefold() or folded in current.casefold() for current in existing):
-            continue
-        existing[:] = [current for current in existing if current.casefold() not in folded]
-        existing.append(field)
 
 
 _DENSE_PHRASES: tuple[tuple[str, str], ...] = (
@@ -509,16 +507,20 @@ def _sanitize_privilege_hints(text: str) -> str:
     return text
 
 
-def pack(text: str, *, legend: bool = False) -> PackResult:
+def pack(text: str, *, legend: bool = False, schema: MemorySchema = DEFAULT_SCHEMA) -> PackResult:
     """Pack normal memory after redacting every detected secret value."""
     secret_scan = scan_secrets(text)
-    grouped: dict[str, list[str]] = {}
+    ensure_safe(secret_scan)
+    records: list[tuple[str, str, str, int]] = []
     warnings = 0
     secret_types: list[str] = []
     secret_marker = re.compile(r"SECRET\{type=([a-z_]+);stored=no\}")
-    for raw_record in _split_records(secret_scan.redacted_text):
+    for line_number, raw_record in _split_records(secret_scan.redacted_text):
         secret_types.extend(secret_marker.findall(raw_record))
         raw_record = secret_marker.sub("", raw_record).strip(" .;,:/")
+        if re.fullmatch(r"(?:sudo(?:\s+password)?|password|passwd|pw|secret|"
+                        r"bridge\s+password|login\s+credential)\s*[=:]?", raw_record, re.I):
+            continue
         if not raw_record:
             continue
         tag = _tag_for(raw_record)
@@ -530,7 +532,32 @@ def pack(text: str, *, legend: bool = False) -> PackResult:
             warnings += 1
         compact = _dense_compact(compact)
         if compact != "§":
-            _merge_fields(grouped.setdefault(tag, []), compact)
+            for field in (part.strip() for part in compact.split(";") if part.strip()):
+                if re.match(r"^[A-Za-z][A-Za-z0-9_.-]*=", field):
+                    key, value = field.split("=", 1)
+                else:
+                    key, value = field, "true"
+                records.append((tag, key.strip(), value.strip(), line_number))
+
+    facts = canonicalize(records, source="memory", schema=schema)
+    grouped: dict[str, list[str]] = {}
+    emitted: set[int] = set()
+    for domain, key, value, _ in records:
+        candidates = [
+            fact for fact in facts
+            if fact.domain == domain and fact.key == key
+            and (fact.value.casefold() == value.casefold()
+                 or value.casefold() in {item.casefold() for item in fact.value.split("/")})
+        ]
+        if not candidates:
+            continue
+        fact = candidates[0]
+        marker = id(fact)
+        if marker in emitted:
+            continue
+        emitted.add(marker)
+        field = f"{fact.key}={fact.value}" if fact.value != "true" else fact.key
+        grouped.setdefault(fact.domain, []).append(field)
 
     lines = [f"{tag}{{{';'.join(fields)}}}" for tag, fields in grouped.items()]
     lines.extend(f"SECRET{{type={secret_type};stored=no}}" for secret_type in secret_types)
@@ -539,4 +566,4 @@ def pack(text: str, *, legend: bool = False) -> PackResult:
         packed += "\n"
     if legend:
         packed = PACK_LEGEND + packed
-    return PackResult(packed, len(lines), warnings, len(secret_scan.findings))
+    return PackResult(packed, len(lines), warnings, len(secret_scan.findings), facts)

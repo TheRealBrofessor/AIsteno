@@ -12,12 +12,48 @@ three deliberately distinct modes:
 
 Pack output is not byte-reversible. Use archive mode when exact text matters.
 Pack mode always scans and redacts likely secrets before any compression.
+Pack mode fails closed when a credential-shaped value cannot be classified
+reliably. Install the optional `security` extra to enable the established
+`detect-secrets` plugin suite in CI; format-aware detectors cover common AWS,
+GitHub, JWT, Slack, Google, Stripe, and private-key forms.
 
 ## Install
 
 ```sh
 python3 -m pip install -e .
 ```
+
+For an isolated end-user installation from the repository's `master` branch:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TheRealBrofessor/AIsteno/master/install.sh | sh
+```
+
+`pipx install git+https://github.com/TheRealBrofessor/AIsteno.git@master` is
+also supported. PyPI installation is not advertised because no PyPI release
+has been confirmed. The installer does not access agent memory; setup requires
+an explicit approval.
+
+## Product workflow
+
+Discover a supported Hermes memory file (`~/.hermes/memories/MEMORY.md`,
+`USER.md`, or a profile equivalent), approve the source/output pair, and
+write a verified packed snapshot without modifying the source:
+
+```sh
+aisteno setup
+aisteno validate
+aisteno sync
+aisteno watch --interval 5
+aisteno restore /path/to/output.txt.20260101T000000Z.bak
+```
+
+The default configuration lives at `~/.config/aisteno/config.json` and may be
+overridden with `AISTENO_CONFIG`. Backups are created before replacement.
+Each managed snapshot records both the source checksum and an independent
+packed-payload checksum; startup refuses stale or modified context.
+`aisteno dashboard` serves a loopback-only fact/conflict report; `aisteno mcp`
+provides a dependency-free JSON-RPC stdio bridge for compatible MCP clients.
 
 ## Pack normal memory
 
@@ -64,6 +100,18 @@ account, project, tool, status, risk, path, and workflow facts are kept in
 separate domain records where possible. The categorized
 normal-memory vocabulary contains more than 300 mappings.
 
+Packed records are backed by versioned canonical facts rather than substring
+merging. JSON export includes each fact's domain, key, value, timestamp,
+source line, conflicts, and explicit supersession markers:
+
+```sh
+cat memory.md | aisteno pack-json -
+aisteno pack memory.md --json
+```
+
+The compiler schema and transformations are extensible in
+`aisteno/schema.py`; the vocabulary remains data in `wordlist.py`.
+
 ### Secret handling
 
 `pack`, `pack-preview`, and `pack-stats` detect labeled passwords, sudo values,
@@ -74,6 +122,18 @@ contains metadata such as `SECRET{type=sudo;stored=no}` but never the value.
 `secret-scan` reports only the count, line number, type, and a fully redacted
 preview. Archive mode intentionally remains exact and does not redact; do not
 inject archive output as agent memory.
+
+## Benchmark
+
+The benchmark compares original memory, AIsteno packing, and a structured
+summary baseline using real `tiktoken` or `transformers` tokenizers plus
+deterministic fact checks covering identifiers, dates, negation, conflicts, and
+supersession. It reports token counts, missed facts, forbidden matches, and
+failed cases; it does not claim semantic model accuracy:
+
+```sh
+python benchmarks/run.py tiktoken
+```
 
 Pack mode also coarsens privilege behavior: full-permission hints become
 `priv=high`, and password-handling hints become
@@ -106,8 +166,10 @@ line endings.
 - `--apply` is required to write; `--apply --force` is required to replace an
   existing output.
 - The input path is never overwritten, even with `--force`.
-- AIsteno only reads the input explicitly supplied to a command and never
-  discovers or edits Miahou memory on its own.
+- Setup discovery only inspects the documented candidate paths and requires
+  explicit approval. Synchronization never modifies the source memory.
+- Secret detection is conservative rather than perfect; ambiguous detector
+  findings fail closed and archive mode remains intentionally exact.
 
 ## Development
 

@@ -1,0 +1,12 @@
+{
+  "memory": "The user prefers concise direct answers with no fluff. The primary device is a Lenovo ThinkPad X1 Carbon running Linux. The work email is professor@example.com. Case No. CV-2026-14 must remain exact. The project status was active as of 2026-01-01 and is now paused. The user must not store passwords.",
+  "questions": [
+    {"question": "What answer style is preferred?", "expected": ["concise", "direct"]},
+    {"question": "What is the primary device?", "expected": ["Lenovo ThinkPad X1 Carbon"]},
+    {"question": "What is the project status?", "expected": ["active", "paused"], "forbidden": ["completed"]},
+    {"question": "What is the work email?", "expected": ["professor@example.com"]},
+    {"question": "What legal identifier must remain exact?", "expected": ["CV-2026-14"]},
+    {"question": "What date is recorded?", "expected": ["2026-01-01"]},
+    {"question": "What must not be stored?", "expected": ["password"]}
+  ]
+}

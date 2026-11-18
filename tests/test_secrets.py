@@ -61,6 +61,26 @@ class SecretSafetyTests(unittest.TestCase):
         self.assertNotIn(value, result.text)
         self.assertIn("SECRET{type=password;stored=no}", result.text)
 
+    def test_common_environment_and_json_credentials_are_redacted(self):
+        source = (
+            'AWS_SECRET_ACCESS_KEY="aws-secret-value"\n'
+            '{"client_secret": "json-secret-value", "api_key": "json-api-value"}\n'
+        )
+        scan = scan_secrets(source)
+        for value in ("aws-secret-value", "json-secret-value", "json-api-value"):
+            self.assertNotIn(value, scan.redacted_text)
+
+    def test_private_key_body_is_redacted_without_leaking(self):
+        source = "-----BEGIN PRIVATE KEY-----\nprivate-body\n-----END PRIVATE KEY-----\n"
+        scan = scan_secrets(source)
+        self.assertNotIn("private-body", scan.redacted_text)
+        self.assertNotIn("private-body", format_secret_scan(scan))
+
+    def test_detector_findings_are_not_discarded(self):
+        scan = scan_secrets("access_token=ghp_" + "A" * 24 + "\n")
+        self.assertGreaterEqual(len(scan.findings), 1)
+        self.assertNotIn("ghp_", scan.redacted_text)
+
     def test_secret_scan_never_prints_values(self):
         values = ("Amber4!Signal", "tok_private_987")
         source = f"password={values[0]}\nToken: {values[1]}\n"
