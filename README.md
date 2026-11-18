@@ -23,18 +23,21 @@ GitHub, JWT, Slack, Google, Stripe, and private-key forms.
 python3 -m pip install -e .
 ```
 
-For an isolated end-user installation:
+For an isolated end-user installation from the repository's `master` branch:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/TheRealBrofessor/AIsteno/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/TheRealBrofessor/AIsteno/master/install.sh | sh
 ```
 
-`pipx install aisteno` is also supported. The installer does not access agent
-memory; setup requires an explicit approval.
+`pipx install git+https://github.com/TheRealBrofessor/AIsteno.git@master` is
+also supported. PyPI installation is not advertised because no PyPI release
+has been confirmed. The installer does not access agent memory; setup requires
+an explicit approval.
 
 ## Product workflow
 
-Discover a supported Hermes memory file, approve the source/output pair, and
+Discover a supported Hermes memory file (`~/.hermes/memories/MEMORY.md`,
+`USER.md`, or a profile equivalent), approve the source/output pair, and
 write a verified packed snapshot without modifying the source:
 
 ```sh
@@ -122,7 +125,9 @@ inject archive output as agent memory.
 
 The benchmark compares original memory, AIsteno packing, and a structured
 summary baseline using real `tiktoken` or `transformers` tokenizers plus
-factual QA checks:
+deterministic fact checks covering identifiers, dates, negation, conflicts, and
+supersession. It reports token counts, missed facts, forbidden matches, and
+failed cases; it does not claim semantic model accuracy:
 
 ```sh
 python benchmarks/run.py tiktoken
@@ -159,8 +164,10 @@ line endings.
 - `--apply` is required to write; `--apply --force` is required to replace an
   existing output.
 - The input path is never overwritten, even with `--force`.
-- AIsteno only reads the input explicitly supplied to a command and never
-  discovers or edits Miahou memory on its own.
+- Setup discovery only inspects the documented candidate paths and requires
+  explicit approval. Synchronization never modifies the source memory.
+- Secret detection is conservative rather than perfect; ambiguous detector
+  findings fail closed and archive mode remains intentionally exact.
 
 ## Development
 

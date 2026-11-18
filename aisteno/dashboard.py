@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from html import escape
+import ipaddress
 import json
 from pathlib import Path
 from urllib.parse import urlparse
@@ -14,16 +16,23 @@ from .pack import pack
 def _page(config, result) -> str:
     facts = result.facts
     conflicts = sum(bool(fact.conflicts) for fact in facts)
+    facts_json = escape(json.dumps([fact.as_dict() for fact in facts], indent=2))
     return f"""<!doctype html><meta charset="utf-8"><title>AIsteno</title>
 <h1>AIsteno memory dashboard</h1>
-<p><b>Source:</b> {config.source}</p><p><b>Output:</b> {config.output}</p>
+<p><b>Source:</b> {escape(config.source)}</p><p><b>Output:</b> {escape(config.output)}</p>
 <p><b>Facts:</b> {len(facts)} &nbsp; <b>Conflicts:</b> {conflicts}
 &nbsp; <b>Warnings:</b> {result.possible_lost_detail_warnings}
 &nbsp; <b>Secrets redacted:</b> {result.secrets_redacted}</p>
-<pre>{json.dumps([fact.as_dict() for fact in facts], indent=2)}</pre>"""
+<pre>{facts_json}</pre>"""
 
 
 def serve(host: str = "127.0.0.1", port: int = 8765) -> ThreadingHTTPServer:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError as exc:
+        raise ValueError("dashboard host must be an IP loopback address") from exc
+    if not address.is_loopback:
+        raise ValueError("dashboard refuses non-loopback hosts")
     config = load_config()
     source = Path(config.source)
     result = pack(source.read_text(encoding="utf-8"))

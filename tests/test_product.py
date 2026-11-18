@@ -3,7 +3,9 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import threading
 import unittest
+from urllib.request import urlopen
 from unittest.mock import patch
 
 from aisteno.config import Config, load_config
@@ -17,8 +19,8 @@ class ProductTests(unittest.TestCase):
     def test_setup_requires_approval_and_detects_hermes(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            source = home / ".hermes" / "memory.md"
-            source.parent.mkdir()
+            source = home / ".hermes" / "memories" / "MEMORY.md"
+            source.parent.mkdir(parents=True)
             source.write_text("User prefers concise answers.\n", encoding="utf-8")
             candidates = discover_candidates(home)
             self.assertEqual(candidates[0].agent, "hermes")
@@ -56,6 +58,20 @@ class ProductTests(unittest.TestCase):
             self.assertTrue(result.changed)
             self.assertTrue(output.exists())
 
+    def test_sync_failure_keeps_previous_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, output = root / "source.md", root / "output.txt"
+            source.write_text("User prefers concise answers.\n", encoding="utf-8")
+            config = Config(str(source), str(output))
+            sync(config)
+            previous = output.read_bytes()
+            source.write_text("User prefers direct answers.\n", encoding="utf-8")
+            with patch.object(Path, "replace", side_effect=OSError("simulated replace failure")):
+                with self.assertRaises(OSError):
+                    sync(config)
+            self.assertEqual(output.read_bytes(), previous)
+
     def test_mcp_stdio_exposes_context(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -70,6 +86,17 @@ class ProductTests(unittest.TestCase):
                 serve_mcp(incoming, outgoing)
             self.assertIn("memory_context", outgoing.getvalue())
 
+    def test_mcp_returns_protocol_errors_without_tracebacks(self):
+        incoming = io.StringIO(
+            '{"jsonrpc":"2.0","id":1,"method":"unknown"}\n'
+            '{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"bad"}}\n'
+        )
+        outgoing = io.StringIO()
+        serve_mcp(incoming, outgoing)
+        messages = [json.loads(line) for line in outgoing.getvalue().splitlines()]
+        self.assertEqual(messages[0]["error"]["code"], -32601)
+        self.assertEqual(messages[1]["error"]["code"], -32602)
+
     def test_dashboard_is_loopback_and_serves_html(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -78,8 +105,30 @@ class ProductTests(unittest.TestCase):
             config_file.write_text(json.dumps(Config(str(source), str(root / "out")).__dict__), encoding="utf-8")
             with patch.dict(os.environ, {"AISTENO_CONFIG": str(config_file)}):
                 server = serve(port=0)
+            self.assertRaises(ValueError, serve, host="0.0.0.0", port=0)
             self.assertEqual(server.server_address[0], "127.0.0.1")
             server.server_close()
+
+    def test_dashboard_escapes_dynamic_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, config_file = root / "source.md", root / "config.json"
+            source.write_text("Project: <script>alert(1)</script>\n", encoding="utf-8")
+            config_file.write_text(json.dumps(Config(str(source), str(root / "out")).__dict__), encoding="utf-8")
+            with patch.dict(os.environ, {"AISTENO_CONFIG": str(config_file)}):
+                server = serve(port=0)
+            thread = threading.Thread(target=server.serve_forever)
+            thread.start()
+            try:
+                body = urlopen(
+                    f"http://127.0.0.1:{server.server_address[1]}/", timeout=2
+                ).read().decode()
+            finally:
+                server.shutdown()
+                thread.join()
+                server.server_close()
+            self.assertNotIn("<script>alert(1)</script>", body)
+            self.assertIn("&lt;script&gt;", body)
 
 
 if __name__ == "__main__":

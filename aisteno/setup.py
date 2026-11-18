@@ -19,14 +19,18 @@ class Candidate:
 def discover_candidates(home: Path | None = None) -> tuple[Candidate, ...]:
     root = home or Path.home()
     candidates: list[Candidate] = []
-    locations = (
-        ("hermes", root / ".hermes" / "memory.md"),
-        ("hermes", root / ".config" / "hermes" / "memory.md"),
-        ("hermes", root / ".local" / "share" / "hermes" / "memory.md"),
-    )
-    for agent, source in locations:
+    locations = [
+        root / ".hermes" / "memory.md",
+        root / ".hermes" / "memories" / "MEMORY.md",
+        root / ".hermes" / "memories" / "USER.md",
+    ]
+    profile_root = root / ".hermes" / "profiles"
+    if profile_root.is_dir():
+        locations.extend(profile_root.glob("*/memories/MEMORY.md"))
+        locations.extend(profile_root.glob("*/memories/USER.md"))
+    for source in locations:
         if source.is_file():
-            candidates.append(Candidate(agent, source, source.with_name("memory.aisteno.txt")))
+            candidates.append(Candidate("hermes", source, source.with_name(f"{source.stem}.aisteno.txt")))
     return tuple(candidates)
 
 

@@ -16,6 +16,7 @@ from .setup import setup
 from .sync import restore, sync, watch
 from .dashboard import serve as serve_dashboard
 from .mcp_server import serve as serve_mcp
+from . import __version__
 
 
 def _read(path: Path) -> str:
@@ -65,6 +66,7 @@ def _add_pack_parser(subparsers: argparse._SubParsersAction) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aisteno")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
     _add_transform_parser(subparsers, "encode")
     _add_transform_parser(subparsers, "decode")
@@ -105,7 +107,11 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         text = _read(args.input) if hasattr(args, "input") else ""
-        if getattr(args, "force", False) and not getattr(args, "apply", False):
+        if (
+            getattr(args, "force", False)
+            and args.command in {"encode", "decode", "pack"}
+            and not getattr(args, "apply", False)
+        ):
             raise ValueError("--force requires --apply")
         if args.command == "encode":
             result = encode(text)

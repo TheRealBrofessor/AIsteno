@@ -35,7 +35,9 @@ class SecretScan:
 
 _LABEL = (
     r"sudo\s+password|bridge\s+password|login\s+credential|"
-    r"access[_ -]?token|api[_ -]?key|password|passwd|pw|sudo|token|secret"
+    r"access[_ -]?token|api[_ -]?key|client[_ -]?secret|"
+    r"aws[_ -]?secret[_ -]?access[_ -]?key|private[_ -]?key|"
+    r"password|passwd|pw|sudo|token|secret|credential"
 )
 _LABELED = re.compile(
     rf"(?P<label>\b(?:{_LABEL})\b)\s*(?:=|:|\bis\b)\s*"
@@ -61,6 +63,17 @@ _FORMATS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("private_key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
 )
 _AMBIGUOUS = re.compile(r"(?<![\w@])[A-Za-z0-9+/=_-]{40,}(?!\w)")
+_ENV_SECRET = re.compile(
+    r"\b(?:AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|GITHUB_TOKEN|"
+    r"OPENAI_API_KEY|ANTHROPIC_API_KEY|DATABASE_URL|CLIENT_SECRET)\s*=\s*"
+    r"(?P<value>\"[^\"\r\n]+\"|'[^'\r\n]+'|[^\s,;]+)",
+    re.IGNORECASE,
+)
+_JSON_SECRET = re.compile(
+    r"\"(?:api[_-]?key|access[_-]?token|client[_-]?secret|password|private[_-]?key)\""
+    r"\s*:\s*\"(?P<value>[^\"]+)\"",
+    re.IGNORECASE,
+)
 
 
 def _secret_type(label: str) -> str:
@@ -69,6 +82,10 @@ def _secret_type(label: str) -> str:
         return "sudo"
     if normalized == "api key":
         return "api_key"
+    if "private" in normalized:
+        return "private_key"
+    if "client secret" in normalized:
+        return "credential"
     if "token" in normalized:
         return "token"
     if normalized == "secret":
@@ -81,22 +98,27 @@ def _preview(line: str, limit: int = 180) -> str:
     return line if len(line) <= limit else line[: limit - 1] + "…"
 
 
-def _external_findings(text: str) -> tuple[int, ...]:
+def _external_findings(text: str) -> tuple[tuple[int, str, str], ...]:
     try:
-        from detect_secrets import SecretsCollection
-        from detect_secrets.settings import default_settings
+        from detect_secrets.settings import transient_settings
+        from detect_secrets.core.plugins.util import get_mapping_from_secret_type_to_class
     except ImportError:
         return ()
-    collection = SecretsCollection()
-    with default_settings():
+    findings: list[tuple[int, str, str]] = []
+    plugin_names = [
+        plugin.__name__
+        for name, plugin in get_mapping_from_secret_type_to_class().items()
+        if name not in {"Base64 High Entropy String", "Hex High Entropy String", "Public IP (ipv4)"}
+    ]
+    with transient_settings({"plugins_used": [{"name": name} for name in plugin_names]}):
         for line_number, line in enumerate(text.splitlines(), start=1):
             from detect_secrets.core.scan import scan_line
-            tuple(scan_line(line))
-    # Local format-aware detectors own redaction. Plugin results are deliberately
-    # not copied into reports because the value classification is not stable
-    # across detect-secrets plugin versions.
-    del collection
-    return ()
+            for finding in scan_line(line):
+                value = str(getattr(finding, "secret_value", ""))
+                kind = str(getattr(finding, "type", "detector")).casefold().replace(" ", "_")
+                if value:
+                    findings.append((line_number, kind, value))
+    return tuple(findings)
 
 
 def scan_secrets(text: str) -> SecretScan:
@@ -104,6 +126,11 @@ def scan_secrets(text: str) -> SecretScan:
     findings: list[tuple[int, str, str]] = []
     ambiguous: set[int] = set()
     redacted_lines: list[str] = []
+    external = _external_findings(text)
+    external_by_line: dict[int, list[tuple[str, str]]] = {}
+    for line_number, kind, value in external:
+        external_by_line.setdefault(line_number, []).append((kind, value))
+    private_active = False
     for line_number, original in enumerate(text.splitlines(keepends=True), start=1):
         newline = ""
         content = original
@@ -111,6 +138,17 @@ def scan_secrets(text: str) -> SecretScan:
             content, newline = content[:-2], "\r\n"
         elif content.endswith(("\n", "\r")):
             content, newline = content[:-1], content[-1]
+        private_header = re.search(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", content)
+        if private_active or private_header:
+            marker = "SECRET{type=private_key;stored=no}"
+            if private_header:
+                content = content[:private_header.start()] + marker
+            else:
+                content = marker
+            private_active = "-----END " not in original
+            findings.append((line_number, "private_key", content))
+            redacted_lines.append(content + newline)
+            continue
         matches: list[tuple[int, int, str]] = []
         for match in _LABELED.finditer(content):
             matches.append((*match.span("value"), _secret_type(match.group("label"))))
@@ -119,6 +157,10 @@ def scan_secrets(text: str) -> SecretScan:
             matches.append((*bare.span("value"), _secret_type(bare.group("label"))))
         for secret_type, pattern in _FORMATS:
             matches.extend((match.start(), match.end(), secret_type) for match in pattern.finditer(content))
+        for match in _ENV_SECRET.finditer(content):
+            matches.append((*match.span("value"), "environment_secret"))
+        for match in _JSON_SECRET.finditer(content):
+            matches.append((*match.span("value"), "json_credential"))
         labeled_spans = [(start, end) for start, end, _ in matches]
         bare_span = bare.span() if bare else None
         for match in _PASSWORD_LIKE.finditer(content):
@@ -127,6 +169,12 @@ def scan_secrets(text: str) -> SecretScan:
             matches.append((*match.span(), "password"))
         if bare_span:
             matches = [(bare_span[0], bare_span[1], _secret_type(bare.group("label")))]
+        for detector_type, detector_value in external_by_line.get(line_number, []):
+            if detector_value and detector_value in content:
+                start = content.find(detector_value)
+                matches.append((start, start + len(detector_value), f"detector_{detector_type}"))
+            else:
+                ambiguous.add(line_number)
         selected: list[tuple[int, int, str]] = []
         for start, end, kind in sorted(matches, key=lambda item: (item[0], -(item[1] - item[0]))):
             if any(start < used_end and end > used_start for used_start, used_end, _ in selected):
@@ -141,9 +189,8 @@ def scan_secrets(text: str) -> SecretScan:
         if not matches and _AMBIGUOUS.search(content) and not path_like and not hash_like:
             ambiguous.add(line_number)
         redacted_lines.append(content + newline)
-    for line_number in _external_findings(text):
-        if line_number not in {line for line, _, _ in findings}:
-            ambiguous.add(line_number)
+    if private_active:
+        ambiguous.add(max(1, len(text.splitlines())))
     result = "".join(redacted_lines)
     return SecretScan(
         result,

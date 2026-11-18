@@ -32,7 +32,7 @@ def _digest(data: bytes) -> str:
 def _backup_path(output: Path, backup_dir: Path | None = None) -> Path:
     directory = backup_dir or output.parent / ".aisteno-backups"
     directory.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     return directory / f"{output.name}.{stamp}.bak"
 
 
@@ -43,10 +43,11 @@ def sync(config: Config, *, force: bool = False) -> SyncResult:
         raise ValueError("source and output must be different")
     original = source.read_bytes()
     existing = output.read_bytes() if output.exists() else None
-    if existing is not None and not force and existing.startswith(b"AISTENO-SYNC"):
-        previous = existing.split(b"\n", 2)[-1]
-        if _digest(original) in existing.decode("utf-8", "ignore"):
-            return SyncResult(False, source, output, None, _digest(original), _digest(existing), 0.0)
+    managed = existing is not None and existing.startswith(b"AISTENO-SYNC/v1\n")
+    if existing is not None and not managed and not force:
+        raise PermissionError("output exists but is not an AIsteno-managed file; use --force to replace it")
+    if existing is not None and managed and _digest(original) in existing.decode("utf-8", "ignore"):
+        return SyncResult(False, source, output, None, _digest(original), _digest(existing), 0.0)
     result = pack(original.decode("utf-8"))
     payload = f"AISTENO-SYNC/v1\nsource-sha256:{_digest(original)}\n{result.text}".encode("utf-8")
     backup = None
