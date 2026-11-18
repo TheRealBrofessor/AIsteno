@@ -8,6 +8,7 @@ import re
 from .wordlist import WORDLIST
 from .facts import CanonicalFact, canonicalize
 from .secrets import ensure_safe, scan_secrets
+from .schema import DEFAULT_SCHEMA, MemorySchema
 
 
 PACK_LEGEND = """PREF=user preferences
@@ -502,7 +503,7 @@ def _sanitize_privilege_hints(text: str) -> str:
     return text
 
 
-def pack(text: str, *, legend: bool = False) -> PackResult:
+def pack(text: str, *, legend: bool = False, schema: MemorySchema = DEFAULT_SCHEMA) -> PackResult:
     """Pack normal memory after redacting every detected secret value."""
     secret_scan = scan_secrets(text)
     ensure_safe(secret_scan)
@@ -534,7 +535,7 @@ def pack(text: str, *, legend: bool = False) -> PackResult:
                     key, value = field, "true"
                 records.append((tag, key.strip(), value.strip(), line_number))
 
-    facts = canonicalize(records, source="memory")
+    facts = canonicalize(records, source="memory", schema=schema)
     grouped: dict[str, list[str]] = {}
     emitted: set[int] = set()
     for domain, key, value, _ in records:
