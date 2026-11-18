@@ -29,6 +29,21 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _snapshot_parts(data: bytes) -> tuple[str, str, bytes] | None:
+    lines = data.splitlines(keepends=True)
+    if len(lines) < 3 or lines[0] != b"AISTENO-SYNC/v1\n":
+        return None
+    source_prefix = b"source-sha256:"
+    packed_prefix = b"packed-sha256:"
+    if not lines[1].startswith(source_prefix) or not lines[1].endswith(b"\n"):
+        return None
+    if not lines[2].startswith(packed_prefix) or not lines[2].endswith(b"\n"):
+        return None
+    source_hash = lines[1][len(source_prefix):-1].decode("ascii", "strict")
+    packed_hash = lines[2][len(packed_prefix):-1].decode("ascii", "strict")
+    return source_hash, packed_hash, b"".join(lines[3:])
+
+
 def _backup_path(output: Path, backup_dir: Path | None = None) -> Path:
     directory = backup_dir or output.parent / ".aisteno-backups"
     directory.mkdir(parents=True, exist_ok=True)
@@ -43,13 +58,23 @@ def sync(config: Config, *, force: bool = False) -> SyncResult:
         raise ValueError("source and output must be different")
     original = source.read_bytes()
     existing = output.read_bytes() if output.exists() else None
-    managed = existing is not None and existing.startswith(b"AISTENO-SYNC/v1\n")
+    snapshot = _snapshot_parts(existing) if existing is not None else None
+    managed = snapshot is not None
     if existing is not None and not managed and not force:
         raise PermissionError("output exists but is not an AIsteno-managed file; use --force to replace it")
-    if existing is not None and managed and _digest(original) in existing.decode("utf-8", "ignore"):
+    if (
+        existing is not None
+        and snapshot is not None
+        and snapshot[0] == _digest(original)
+        and snapshot[1] == _digest(snapshot[2])
+    ):
         return SyncResult(False, source, output, None, _digest(original), _digest(existing), 0.0)
     result = pack(original.decode("utf-8"))
-    payload = f"AISTENO-SYNC/v1\nsource-sha256:{_digest(original)}\n{result.text}".encode("utf-8")
+    body = result.text.encode("utf-8")
+    payload = (
+        f"AISTENO-SYNC/v1\nsource-sha256:{_digest(original)}\n"
+        f"packed-sha256:{_digest(body)}\n"
+    ).encode("ascii") + body
     backup = None
     if existing is not None:
         backup = _backup_path(output, Path(config.backup_dir).expanduser() if config.backup_dir else None)

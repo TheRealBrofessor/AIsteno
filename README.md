@@ -50,6 +50,8 @@ aisteno restore /path/to/output.txt.20260101T000000Z.bak
 
 The default configuration lives at `~/.config/aisteno/config.json` and may be
 overridden with `AISTENO_CONFIG`. Backups are created before replacement.
+Each managed snapshot records both the source checksum and an independent
+packed-payload checksum; startup refuses stale or modified context.
 `aisteno dashboard` serves a loopback-only fact/conflict report; `aisteno mcp`
 provides a dependency-free JSON-RPC stdio bridge for compatible MCP clients.
 

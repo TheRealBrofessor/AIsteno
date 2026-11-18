@@ -85,6 +85,30 @@ class ProductTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 agent_startup(config)
 
+    def test_agent_startup_rejects_modified_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, output = root / "source.md", root / "output.txt"
+            source.write_text("User prefers concise answers.\n", encoding="utf-8")
+            config = Config(str(source), str(output))
+            sync(config)
+            output.write_bytes(output.read_bytes().replace(b"concise", b"direct", 1))
+            with self.assertRaisesRegex(ValueError, "modified"):
+                agent_startup(config)
+
+    def test_sync_rebuilds_tampered_managed_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, output = root / "source.md", root / "output.txt"
+            source.write_text("User prefers concise answers.\n", encoding="utf-8")
+            config = Config(str(source), str(output))
+            first = sync(config)
+            original = output.read_bytes()
+            output.write_bytes(original.replace(b"concise", b"direct", 1))
+            second = sync(config)
+            self.assertTrue(second.changed)
+            self.assertNotEqual(output.read_bytes(), original.replace(b"concise", b"direct", 1))
+
     def test_mcp_stdio_exposes_context(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
